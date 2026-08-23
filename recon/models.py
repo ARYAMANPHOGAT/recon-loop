@@ -47,6 +47,11 @@ class Order:
     status: OrderStatus
     created_at: datetime
     channel: str  # web / app / pos / invoice
+    # How the merchant's own staff labelled this order. Free text, entered by
+    # a human, inconsistent by nature. For invoice and POS channels this is
+    # often the only link back to a settlement line.
+    customer_name: str = ""
+    invoice_ref: str = ""
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -74,6 +79,10 @@ class SettlementLine:
     settlement_id: Optional[str]  # payout batch this belongs to
     settled_on: Optional[date]
     method: str  # upi / card / netbanking / wallet
+    # What the PSP captured at checkout - derived from what the customer typed
+    # or what the merchant passed into the payment link, so it rarely matches
+    # the order book byte for byte.
+    payer_description: str = ""
 
     def to_dict(self) -> dict:
         d = asdict(self)

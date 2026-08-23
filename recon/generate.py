@@ -36,7 +36,25 @@ GST_BPS = 1800  # 18% GST on the commission
 METHOD_WEIGHTS = [("upi", 0.62), ("card", 0.22), ("netbanking", 0.10), ("wallet", 0.06)]
 
 BANKS = ["HDFC", "ICIC", "SBIN", "UTIB", "KKBK", "PYTM"]
+
+FIRST_NAMES = [
+    "Rahul", "Priya", "Amit", "Sneha", "Vikram", "Anjali", "Rohan", "Kavya",
+    "Arjun", "Meera", "Karan", "Divya", "Suresh", "Nisha", "Manish", "Pooja",
+]
+LAST_NAMES = [
+    "Sharma", "Patel", "Reddy", "Iyer", "Gupta", "Nair", "Singh", "Mehta",
+    "Desai", "Kulkarni", "Banerjee", "Chopra", "Rao", "Joshi",
+]
 CHANNELS = ["web", "app", "pos", "invoice"]
+
+# Common Indian retail price points, in paise. Deliberately includes the
+# charm-pricing values (x99) that dominate real catalogues.
+PRICE_POINTS = [
+    29_900, 49_900, 59_900, 79_900, 99_900,
+    129_900, 149_900, 199_900, 249_900, 299_900,
+    399_900, 499_900, 599_900, 799_900, 999_900,
+    1_499_900, 1_999_900, 2_499_900,
+]
 
 
 def _weighted_method(rng: random.Random) -> str:
@@ -56,6 +74,32 @@ def _fee_for(gross: Paise, method: str) -> tuple[Paise, Paise]:
     fee = round(gross * FEE_BPS[method] / 10_000)
     tax = round(fee * GST_BPS / 10_000)
     return fee, tax
+
+
+def _mangle_name(rng: random.Random, first: str, last: str) -> str:
+    """Produce the payer description a PSP would actually capture.
+
+    Merchant staff type a name into an order book; a customer types their own
+    name at checkout; a bank truncates it. The two strings refer to the same
+    person and are rarely identical. Every variant below is drawn from a real
+    failure mode, which is why exact-match on names is useless here.
+    """
+    style = rng.random()
+    if style < 0.22:
+        return f"{first} {last}".upper()
+    if style < 0.40:
+        return f"{first[0]}. {last}"                      # initial only
+    if style < 0.55:
+        return f"{last} {first}"                          # order swapped
+    if style < 0.68:
+        return f"{first} {last}".replace("a", "aa", 1)    # phonetic spelling
+    if style < 0.78:
+        return f"{first}{last}".upper()                   # whitespace lost
+    if style < 0.87:
+        return f"{first} {last[:4]}"                      # truncated by field limit
+    if style < 0.94:
+        return f"MR {first} {last}".upper()               # honorific added
+    return f"{first} {last}"                              # occasionally clean
 
 
 def _utr(rng: random.Random) -> str:
@@ -92,6 +136,7 @@ def generate(
 
     # ---------------- 1. Orders ------------------------------------------
     orders: list[Order] = []
+    name_pairs: dict[str, tuple[str, str]] = {}
     for i in range(n_orders):
         day_offset = rng.randint(0, days - 1)
         created = datetime.combine(
@@ -99,15 +144,22 @@ def generate(
             datetime.min.time(),
         ) + timedelta(hours=rng.randint(6, 23), minutes=rng.randint(0, 59))
 
-        # Realistic Indian AOV distribution: long tail, mode around Rs.500-2000
-        amount = rng.choice(
-            [
-                rng.randint(9_900, 99_900),  # Rs.99 - Rs.999
-                rng.randint(100_000, 500_000),  # Rs.1k - Rs.5k
-                rng.randint(500_000, 2_500_000),  # Rs.5k - Rs.25k
-                rng.randint(2_500_000, 15_000_000),  # Rs.25k - Rs.1.5L (rare)
-            ]
-        )
+        # Merchants sell at price points, not at random amounts. Roughly 70% of
+        # orders land on a fixed SKU price, which means many orders share an
+        # amount exactly. This is what makes amount-plus-time insufficient on
+        # its own and forces the name tier to do real work - generating random
+        # amounts would have made the order leg look far easier than it is.
+        if rng.random() < 0.70:
+            amount = rng.choice(PRICE_POINTS)
+        else:
+            amount = rng.choice(
+                [
+                    rng.randint(9_900, 99_900),
+                    rng.randint(100_000, 500_000),
+                    rng.randint(500_000, 2_500_000),
+                    rng.randint(2_500_000, 15_000_000),
+                ]
+            )
 
         # ~86% of orders convert; rest sit as attempted/created and should
         # never appear in settlement. They are noise the matcher must ignore.
@@ -118,10 +170,14 @@ def generate(
             else (OrderStatus.ATTEMPTED if roll < 0.95 else OrderStatus.CREATED)
         )
 
+        first = rng.choice(FIRST_NAMES)
+        last = rng.choice(LAST_NAMES)
         orders.append(
             Order(
                 order_id=f"order_{seed}{i:05d}",
                 customer_ref=f"cust_{rng.randint(1000, 9999)}",
+                customer_name=f"{first} {last}",
+                invoice_ref=f"INV{rng.randint(1000, 9999)}",
                 amount=amount,
                 currency="INR",
                 status=status,
@@ -129,6 +185,7 @@ def generate(
                 channel=rng.choice(CHANNELS),
             )
         )
+        name_pairs[f"order_{seed}{i:05d}"] = (first, last)
     led.orders = orders
 
     paid_orders = [o for o in orders if o.status == OrderStatus.PAID]
@@ -153,9 +210,19 @@ def generate(
                 settlement_id=None,  # assigned in the payout step
                 settled_on=None,
                 method=method,
+                payer_description=_mangle_name(rng, *name_pairs[o.order_id]),
             )
         )
         led.truth_entity_to_order[pay_id] = o.order_id
+
+        # BREAK M: not every channel round-trips the order id. Payment links
+        # and POS collections are frequently raised outside the ERP, so the
+        # settlement line arrives carrying only an amount, a timestamp and a
+        # payer name. Dropping the id here is what forces the order leg to
+        # earn its match rather than reading a key off the record.
+        if o.channel in ("invoice", "pos") and rng.random() < 0.75:
+            lines[-1].order_id = None
+            log("order_id_absent", entity_id=pay_id, channel=o.channel)
 
     # --- BREAK A: refunds issued after capture, netted into a later payout
     n_refunds = max(3, int(len(lines) * 0.045))

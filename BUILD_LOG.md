@@ -166,3 +166,61 @@ genuinely ambiguous text, and it moves to the order ↔ settlement leg where fre
 text customer references ("Rahul S - inv 4471" against "RAHUL SHARMA INV4471")
 are fuzzy in a way bank arithmetic is not. Manufacturing work for it on the bank
 leg would have meant loosening a tier that currently has a perfect record.
+
+---
+
+## 8. Fuzzy name matcher scored the wrong customer higher than the right one
+
+The order leg matches settlement lines to orders. Where the channel carries no
+order id, the only link is a payer name typed by a human — `PRIYAMEHTA` in the
+settlement report against `Priya Mehta` in the order book.
+
+One false positive appeared across 40 seeds:
+
+```
+psp payer   : 'PRIYAMEHTA'   Rs.999.00
+matched to  : 'Divya Mehta'  Rs.999.00     score 88
+truth was   : 'Priya Mehta'  Rs.999.00     score 66
+```
+
+The scorer preferred the wrong customer by 22 points.
+
+Cause was in the normaliser. It alphabetises tokens so reordered names compare
+equal — `Patel Rohan` against `Rohan Patel`. The similarity function then
+stripped spaces from that *sorted* output and ran a substring comparison on it,
+which meant `Priya Mehta` was compared as `MEHTAPRIYA`. Sorting had destroyed
+the letter order that the substring comparison depends on, while `Divya Mehta`
+happened to share the `YAMEHTA` tail.
+
+Sorting is correct for token comparison and wrong for substring comparison.
+One normalised string was being fed to both.
+
+**Fix:** `normalise_reference` takes a `sort_tokens` flag. Token comparison gets
+the sorted form, substring comparison gets the unsorted one. `PRIYAMEHTA` now
+scores 100 against the correct name and 88 against the decoy, and the 12-point
+margin rule rejects the ambiguity.
+
+Result across 100 seeds: order-leg match rate 98.4%, **zero false positives**.
+
+---
+
+## 9. Two more generators that were too easy, found the same way as item 2
+
+Building the order leg surfaced the same failure twice more. Both times a tier
+reported 100% of the work and the tiers below it never fired — which means the
+data, not the engine, was doing the matching.
+
+**Every settlement line carried an order id.** O0 matched everything; the
+amount and name tiers were dead code. Real payment links and POS collections
+are raised outside the ERP and arrive with no order id at all. Fixed by
+dropping the id for 75% of invoice and POS channel lines.
+
+**Amounts never collided.** With random rupee values, amount plus a time window
+identified almost every order uniquely, so the name tier still never fired.
+Real merchants sell at price points — fifty customers buy the same ₹499 item.
+Fixed by drawing 70% of order amounts from a fixed price-point list including
+the charm-pricing values that dominate real catalogues.
+
+Only after both fixes did the name tier carry meaningful volume (767 matches
+across 100 seeds), and only then did the false positive in item 8 become
+visible. A generator that flatters the engine hides the bugs worth finding.
