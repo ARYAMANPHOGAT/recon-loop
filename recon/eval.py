@@ -165,59 +165,33 @@ def print_report(r: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def ablation_stub() -> dict[str, float]:
-    """
-    Skeleton for ablation. Your job to fill this in.
-
-    The ablation disables one tier at a time and re-runs the sweep to show
-    what each tier actually contributes. This is the differentiator between
-    "here's a number" and "here's a number I measured".
-
-    Pattern:
-    1. Run a baseline sweep (already done in the main harness)
-    2. For each tier (T0, T1, T2, T3, T4, T4b):
-       - Modify the match engine to skip that tier
-       - Run the same sweep (e.g., 20 seeds for speed)
-       - Record the match rate
-    3. Return {tier_name: match_rate_without_that_tier}
-
-    The delta from baseline tells you the contribution.
-
-    IMPORTANT: Don't modify match.py directly. Instead, pass a parameter to
-    the match() function that disables a tier, OR make a copy of the match
-    logic that skips it. Keep match.py pristine.
-
-    You could also run match() and post-process the results, but that's
-    messier.
-
-    Here's a skeleton to get started — fill in the logic:
-
-    ```python
-    def ablation_stub(baseline_rate=90.5, n_seeds=20):
-        results = {}
-        for tier in ['T0', 'T1', 'T2', 'T3', 'T4', 'T4b']:
-            # TODO: disable this tier
-            # TODO: run sweep
-            # TODO: measure match rate
-            # results[tier] = match_rate_without_tier
-            pass
-        return results
-    ```
-
-    Call it from main(), print the results, and you're done.
-    """
-    return {}
-
+def ablation_stub(baseline_rate: float, n_seeds: int = 20) -> dict[str, float]:
+    tiers = [
+        "T0_settlement_id",
+        "T1_utr",
+        "T2_amount_date",
+        "T4_subset_sum",
+        "T4b_subset_sum_charged",
+    ]
+    results = {}
+    for tier in tiers:
+        rates = []
+        for seed in range(1, n_seeds + 1):
+            L = generate(seed=seed)
+            R = match(L, disabled_tiers={tier})
+            P = len(set(l.settlement_id for l in L.settlements if l.settlement_id))
+            rates.append(len(R.matches) / P * 100 if P else 0)
+        results[tier] = round(sum(rates) / len(rates), 1)
+    return results
 
 if __name__ == "__main__":
     print("Running 100-seed eval sweep...")
     results = sweep(n_seeds=100)
     rep = report(results)
     print_report(rep)
-
-    # TODO: uncomment this line once you fill in ablation_stub()
-    # print("\nAblation (match rate without each tier):")
-    # abl = ablation_stub(baseline_rate=rep['match_rate']['mean'])
-    # for tier, rate in abl.items():
-    #     delta = rep['match_rate']['mean'] - rate
-    #     print(f"  {tier:28s} {rate:5.1f}%  (delta {delta:+5.1f}%)")
+ 
+    print("\nAblation (match rate without each tier):")
+    abl = ablation_stub(baseline_rate=rep['match_rate']['mean'])
+    for tier, rate in abl.items():
+        delta = rep['match_rate']['mean'] - rate
+        print(f"  {tier:28s} {rate:5.1f}%  (delta {delta:+5.1f}%)")

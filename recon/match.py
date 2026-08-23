@@ -154,7 +154,16 @@ def close_enough(a: Paise, b: Paise) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def match(led: Ledger) -> MatchResult:
+def match(led: Ledger, disabled_tiers: set[str] | None = None) -> MatchResult:
+    """Run the tier cascade.
+
+    `disabled_tiers` switches individual tiers off by name. It exists for the
+    ablation harness: measuring what a tier contributes requires running the
+    engine without it. Production callers pass nothing.
+    """
+    if disabled_tiers is None:
+        disabled_tiers = set()
+
     payouts = build_payouts(led)
     credits = [b for b in led.bank if b.credit > 0]
 
@@ -179,131 +188,138 @@ def match(led: Ledger) -> MatchResult:
             claimed_bank.add(r.stmt_id)
 
     # --- T0: settlement id printed in the narration ------------------------
-    narr_index: dict[str, list[BankLine]] = defaultdict(list)
-    for b in credits:
-        m = SETTLEMENT_ID_RE.search(b.narration)
-        if m:
-            narr_index[m.group(1).lower()].append(b)
+    if "T0_settlement_id" not in disabled_tiers:
+        narr_index: dict[str, list[BankLine]] = defaultdict(list)
+        for b in credits:
+            m = SETTLEMENT_ID_RE.search(b.narration)
+            if m:
+                narr_index[m.group(1).lower()].append(b)
 
-    for p in payouts:
-        if p.settlement_id in claimed_payout:
-            continue
-        hits = [b for b in narr_index.get(p.settlement_id.lower(), []) if b.stmt_id not in claimed_bank]
-        if not hits:
-            continue
-        # single credit carrying the id
-        exact = [b for b in hits if close_enough(b.credit, p.net)]
-        if exact:
-            claim(p, [exact[0]], Tier.EXACT_SETTLEMENT_ID)
-            continue
-        # several credits carrying the same id -> split payout
-        if len(hits) > 1 and close_enough(sum(b.credit for b in hits), p.net):
-            claim(p, hits, Tier.EXACT_SETTLEMENT_ID, note="split across bank credits")
+        for p in payouts:
+            if p.settlement_id in claimed_payout:
+                continue
+            hits = [b for b in narr_index.get(p.settlement_id.lower(), []) if b.stmt_id not in claimed_bank]
+            if not hits:
+                continue
+            # single credit carrying the id
+            exact = [b for b in hits if close_enough(b.credit, p.net)]
+            if exact:
+                claim(p, [exact[0]], Tier.EXACT_SETTLEMENT_ID)
+                continue
+            # several credits carrying the same id -> split payout
+            if len(hits) > 1 and close_enough(sum(b.credit for b in hits), p.net):
+                claim(p, hits, Tier.EXACT_SETTLEMENT_ID, note="split across bank credits")
 
     # --- T1: UTR -----------------------------------------------------------
-    # A settlement report does not carry the bank UTR, so this tier only helps
-    # where the narration lost the settlement id but kept a UTR we already
-    # associated with a payout via a sibling row. Kept deliberately narrow:
-    # matching on UTR alone across unrelated payouts is how you create
-    # false positives that look confident.
-    utr_to_payout: dict[str, str] = {}
-    for m in res.matches:
-        for sid in m.bank_stmt_ids:
-            row = next((b for b in credits if b.stmt_id == sid), None)
-            if row and row.utr:
-                utr_to_payout[row.utr] = m.payout_id
+    if "T1_utr" not in disabled_tiers:
+        # A settlement report does not carry the bank UTR, so this tier only helps
+        # where the narration lost the settlement id but kept a UTR we already
+        # associated with a payout via a sibling row. Kept deliberately narrow:
+        # matching on UTR alone across unrelated payouts is how you create
+        # false positives that look confident.
+        utr_to_payout: dict[str, str] = {}
+        for m in res.matches:
+            for sid in m.bank_stmt_ids:
+                row = next((b for b in credits if b.stmt_id == sid), None)
+                if row and row.utr:
+                    utr_to_payout[row.utr] = m.payout_id
 
-    for p in payouts:
-        if p.settlement_id in claimed_payout:
-            continue
-        cands = [
-            b
-            for b in credits
-            if b.stmt_id not in claimed_bank
-            and b.utr
-            and utr_to_payout.get(b.utr) == p.settlement_id
-        ]
-        if cands and close_enough(sum(b.credit for b in cands), p.net):
-            claim(p, cands, Tier.EXACT_UTR)
+        for p in payouts:
+            if p.settlement_id in claimed_payout:
+                continue
+            cands = [
+                b
+                for b in credits
+                if b.stmt_id not in claimed_bank
+                and b.utr
+                and utr_to_payout.get(b.utr) == p.settlement_id
+            ]
+            if cands and close_enough(sum(b.credit for b in cands), p.net):
+                claim(p, cands, Tier.EXACT_UTR)
 
-    # --- T2 / T3: amount + date window ------------------------------------
+    # Shared index. Built outside the tier blocks because both T2 and T4 read
+    # it - scoping it inside T2 means disabling T2 breaks T4.
     by_date: dict[date, list[BankLine]] = defaultdict(list)
     for b in credits:
         by_date[b.value_date].append(b)
 
-    for p in payouts:
-        if p.settlement_id in claimed_payout:
-            continue
-        window = []
-        for d in range(DATE_WINDOW_DAYS + 1):
-            window.extend(by_date.get(p.settled_on + timedelta(days=d), []))
-        window = [b for b in window if b.stmt_id not in claimed_bank]
+    # --- T2 / T3: amount + date window ------------------------------------
+    if "T2_amount_date" not in disabled_tiers:
 
-        amt_hits = [b for b in window if close_enough(b.credit, p.net)]
-        if len(amt_hits) == 1:
-            b = amt_hits[0]
-            tier = Tier.AMOUNT_DATE if looks_like_psp(b.narration) else Tier.AMOUNT_DATE_FUZZY
-            claim(p, [b], tier)
-            continue
-        if len(amt_hits) > 1:
-            # ambiguous on amount alone - break the tie on narration
-            scored = sorted(
-                amt_hits,
-                key=lambda b: fuzz.partial_ratio("RAZORPAY SOFTWARE", b.narration.upper()),
-                reverse=True,
-            )
-            best, second = scored[0], scored[1]
-            s1 = fuzz.partial_ratio("RAZORPAY SOFTWARE", best.narration.upper())
-            s2 = fuzz.partial_ratio("RAZORPAY SOFTWARE", second.narration.upper())
-            if s1 >= 80 and s1 - s2 >= 15:
-                claim(p, [best], Tier.AMOUNT_DATE_FUZZY, note=f"tie broken on narration ({s1} vs {s2})")
-            # else: leave it. An ambiguous match is worse than no match.
+        for p in payouts:
+            if p.settlement_id in claimed_payout:
+                continue
+            window = []
+            for d in range(DATE_WINDOW_DAYS + 1):
+                window.extend(by_date.get(p.settled_on + timedelta(days=d), []))
+            window = [b for b in window if b.stmt_id not in claimed_bank]
+
+            amt_hits = [b for b in window if close_enough(b.credit, p.net)]
+            if len(amt_hits) == 1:
+                b = amt_hits[0]
+                tier = Tier.AMOUNT_DATE if looks_like_psp(b.narration) else Tier.AMOUNT_DATE_FUZZY
+                claim(p, [b], tier)
+                continue
+            if len(amt_hits) > 1:
+                # ambiguous on amount alone - break the tie on narration
+                scored = sorted(
+                    amt_hits,
+                    key=lambda b: fuzz.partial_ratio("RAZORPAY SOFTWARE", b.narration.upper()),
+                    reverse=True,
+                )
+                best, second = scored[0], scored[1]
+                s1 = fuzz.partial_ratio("RAZORPAY SOFTWARE", best.narration.upper())
+                s2 = fuzz.partial_ratio("RAZORPAY SOFTWARE", second.narration.upper())
+                if s1 >= 80 and s1 - s2 >= 15:
+                    claim(p, [best], Tier.AMOUNT_DATE_FUZZY, note=f"tie broken on narration ({s1} vs {s2})")
+                # else: leave it. An ambiguous match is worse than no match.
 
     # --- T4: subset sum for split payouts ---------------------------------
-    for p in payouts:
-        if p.settlement_id in claimed_payout:
-            continue
-        window = []
-        for d in range(DATE_WINDOW_DAYS + 1):
-            window.extend(by_date.get(p.settled_on + timedelta(days=d), []))
-        window = [
-            b for b in window if b.stmt_id not in claimed_bank and looks_like_psp(b.narration)
-        ]
-        if not (2 <= len(window) <= 12):
-            continue
-        found = None
-        for k in (2, 3):
-            for combo in combinations(window, k):
-                if close_enough(sum(b.credit for b in combo), p.net):
-                    found = list(combo)
+    if "T4_subset_sum" not in disabled_tiers:
+        for p in payouts:
+            if p.settlement_id in claimed_payout:
+                continue
+            window = []
+            for d in range(DATE_WINDOW_DAYS + 1):
+                window.extend(by_date.get(p.settled_on + timedelta(days=d), []))
+            window = [
+                b for b in window if b.stmt_id not in claimed_bank and looks_like_psp(b.narration)
+            ]
+            if not (2 <= len(window) <= 12):
+                continue
+            found = None
+            for k in (2, 3):
+                for combo in combinations(window, k):
+                    if close_enough(sum(b.credit for b in combo), p.net):
+                        found = list(combo)
+                        break
+                if found:
                     break
             if found:
-                break
-        if found:
-            claim(p, found, Tier.SUBSET_SUM, note=f"{len(found)} credits summed to payout")
-            continue
+                claim(p, found, Tier.SUBSET_SUM, note=f"{len(found)} credits summed to payout")
+                continue
 
-        # A split payout that was also levied a bank transfer charge lands
-        # short by exactly that charge. Solving it here keeps a deterministic
-        # problem out of the resolver - handing arithmetic to a language
-        # model is the wrong tool in the wrong place.
-        for k in (2, 3):
-            for combo in combinations(window, k):
-                delta = p.net - sum(b.credit for b in combo)
-                if delta in BANK_CHARGES:
-                    found = list(combo)
+            # A split payout that was also levied a bank transfer charge lands
+            # short by exactly that charge. Solving it here keeps a deterministic
+            # problem out of the resolver - handing arithmetic to a language
+            # model is the wrong tool in the wrong place.
+            for k in (2, 3):
+                for combo in combinations(window, k):
+                    delta = p.net - sum(b.credit for b in combo)
+                    if delta in BANK_CHARGES:
+                        found = list(combo)
+                        break
+                if found:
                     break
             if found:
-                break
-        if found:
-            delta = p.net - sum(b.credit for b in found)
-            claim(
-                p,
-                found,
-                Tier.SUBSET_SUM_CHARGED,
-                delta=delta,
-                note=f"{len(found)} credits summed to payout less {BANK_CHARGES[delta]}",
-            )
+                delta = p.net - sum(b.credit for b in found)
+                claim(
+                    p,
+                    found,
+                    Tier.SUBSET_SUM_CHARGED,
+                    delta=delta,
+                    note=f"{len(found)} credits summed to payout less {BANK_CHARGES[delta]}",
+                )
 
     res.unmatched_payouts = [p for p in payouts if p.settlement_id not in claimed_payout]
     res.unmatched_bank = [b for b in credits if b.stmt_id not in claimed_bank]
