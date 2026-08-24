@@ -259,7 +259,11 @@ def generate(
                 order_id=c.order_id,
                 txn_type=TxnType.CHARGEBACK,
                 gross=-c.gross,
-                fee=-50_000,  # Rs.500 chargeback handling fee
+                # A chargeback reverses the payment AND levies a handling fee.
+                # The fee is a positive charge like any other, so the identity
+                # net = gross - fee - tax holds. Writing it negative breaks that
+                # identity and understates batch fee totals by Rs.1,000 each.
+                fee=50_000,  # Rs.500 chargeback handling fee
                 tax=0,
                 net=-c.gross - 50_000,
                 captured_at=c.captured_at + timedelta(days=rng.randint(6, 20)),
@@ -484,7 +488,10 @@ def _inject_hard_breaks(led: Ledger, rng, start: date, days: int, log) -> None:
         period_end = max(payouts_by_day.values()) + timedelta(days=1)
         led.period_start = start
         led.period_end = period_end
-        # anything the bank dated past the close is not on this statement
+        # Anything the bank dated past the close is not on this statement.
+        # Ground truth must be trimmed with it: a truth entry pointing at a
+        # deleted row makes the scorer disagree with a correct engine, which
+        # is how build log item 5 nearly caused working code to be "fixed".
         led.bank = [b for b in led.bank if b.value_date <= period_end]
 
         boundary = [
@@ -539,6 +546,18 @@ def _inject_hard_breaks(led: Ledger, rng, start: date, days: int, log) -> None:
         log("other_psp_credit", stmt_id=f"stmt_psp2_{k}")
 
     led.bank.sort(key=lambda r: (r.value_date, r.stmt_id))
+
+    # Ground truth is reconciled once, here, after every bank mutation is done.
+    # Rows get removed in two places - the period-close trim and the in-transit
+    # break - and a truth entry pointing at a deleted row makes the scorer
+    # disagree with a correct engine. That is how build log item 5 nearly caused
+    # working code to be "fixed" to satisfy a broken scorer.
+    live = {b.stmt_id for b in led.bank}
+    led.truth_payout_to_bank = {
+        sid: target
+        for sid, target in led.truth_payout_to_bank.items()
+        if all(stmt in live for stmt in target.split("+"))
+    }
 
 
 if __name__ == "__main__":

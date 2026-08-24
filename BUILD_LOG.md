@@ -260,3 +260,78 @@ two sweep sizes.
 
 **Fix:** `ablation_stub` takes the seed count from the caller and the CLI passes
 the same value used for the baseline. The deltas now mean what they claim to.
+
+---
+
+## 12. The first test run found two bugs the engine had been carrying silently
+
+Writing the invariant suite immediately failed on two properties the project
+had been quietly violating.
+
+**Chargeback fee had the wrong sign.** The identity `net = gross - fee - tax`
+held on every line except chargebacks, where the handling fee was written as
+`-50_000`. A chargeback reverses the payment *and* levies a ₹500 fee; the fee is
+a positive charge like any other. Written negative, the identity breaks and
+batch fee totals are understated by ₹1,000 per chargeback. The net figure was
+right, so every match still balanced — which is exactly why it survived: the
+number the engine used was correct and the number an accountant would reconcile
+was not.
+
+**Ground truth referenced deleted bank rows.** Rows are removed in two places:
+the period-close trim and the in-transit break. The truth map kept pointing at
+them. This is the same failure as item 5 — a scorer that disagrees with a
+correct engine — and it would have manifested as phantom false positives that
+push you to "fix" working code.
+
+Fixed by reconciling the truth map once, after every bank mutation is complete,
+rather than at the point of each removal.
+
+Both bugs had been present through the 100-seed sweeps that produced the
+headline numbers. Neither was visible from match rate or false-positive counts,
+because both quantities were computed from figures that happened to be correct.
+Only asserting the underlying identities surfaced them.
+
+---
+
+## 13. A test asserted something that was true of one dataset, not of the system
+
+The regression test for item 7 asserted `opaque_narration == 0`, because after
+adding the T4b tier that class went to zero.
+
+It failed once the Day-3 generator changes landed. Investigating the two
+surviving cases showed deltas of ₹2,756.93 and ₹1,953.39 — not bank charges, not
+explainable arithmetic, genuinely ambiguous credits that should reach a human.
+
+The code was right and the test was wrong. Zero was a property of the Day-1
+dataset, not a guarantee the system makes, and asserting it would have created
+pressure to suppress correct behaviour to keep a test green.
+
+**Fix:** the test now asserts the permanent invariant instead — no opaque case
+may have a delta that a published bank charge explains. If one does, T4b has
+regressed and a deterministic problem is being routed onward. A separate,
+looser test guards against opaque cases becoming common.
+
+---
+
+## 14. The determinism fix was incomplete, and the test passed anyway
+
+Item 10 moved wall-clock timing out of `run.json`. It was still being written
+into `summary.md`, so two runs at the same seed still produced different files.
+
+The test suite passed locally. It failed on a different machine, where the two
+runs took 7ms and 10ms instead of landing in the same millisecond.
+
+The test was correct and its *timing* made it unreliable — it compared two runs
+executed back to back, so on a fast machine both readings were identical and the
+leak stayed invisible. A test that only fails on slower hardware is worse than
+no test, because a green suite is taken as proof.
+
+**Fix, two parts.** Timing removed from `summary.md` as well as `run.json`; it
+now appears only on the console, where nothing compares it. And the test now
+sleeps between the two runs to force a different clock reading, so it cannot
+pass by coincidence.
+
+The underlying lesson is the one worth keeping: the first fix addressed the
+instance rather than the class. `run.json` was the file that had failed, so
+`run.json` was the file that got fixed, and the same defect sat untouched in the
+artefact next to it.

@@ -119,8 +119,12 @@ def _write_markdown(result: dict, path: Path) -> None:
     lines = [
         "# Reconciliation run",
         "",
+        # Runtime is deliberately absent from every written artefact. It varies
+        # run to run, so including it makes a deterministic engine produce
+        # non-identical files. It prints to the console instead, where it is
+        # useful and where nothing compares it. See build log items 10 and 14.
         f"Seed `{result['seed']}` · period {result['period']['start']} to "
-        f"{result['period']['end']} · {result['_runtime_ms']}ms",
+        f"{result['period']['end']}",
         "",
         "## Result",
         "",

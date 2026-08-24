@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run test suite
+        run: pytest tests/ -v
+
+      # The engine must run end to end from a clean checkout with no API key
+      # and no configuration. If this step needs setup, the repo is not
+      # reproducible for anyone who clones it.
+      - name: Verify CLI runs with no configuration
+        run: |
+          python -m recon run --seed 42 --out ci-out
+          test -f ci-out/run.json
+          test -f ci-out/summary.md
+          test -f ci-out/exceptions.csv
+
+      - name: Verify determinism
+        run: |
+          python -m recon run --seed 7 --out det-a
+          python -m recon run --seed 7 --out det-b
+          diff det-a/run.json det-b/run.json
+          diff det-a/summary.md det-b/summary.md
+
+      - name: Verify zero false positives across 50 seeds
+        run: python -m recon eval --seeds 50 --no-ablation
