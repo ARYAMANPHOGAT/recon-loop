@@ -224,3 +224,39 @@ the charm-pricing values that dominate real catalogues.
 Only after both fixes did the name tier carry meaningful volume (767 matches
 across 100 seeds), and only then did the false positive in item 8 become
 visible. A generator that flatters the engine hides the bugs worth finding.
+
+---
+
+## 10. A deterministic engine was producing non-identical output files
+
+Determinism is one of this project's claims: same seed, same result, every
+time. Adding the CLI broke it — two runs at seed 7 produced different
+`run.json` files.
+
+The engine was fine. The reporting was not: `runtime_ms` was written into the
+JSON artefact, and wall-clock timing varies by a few milliseconds run to run.
+So a byte-comparison of two outputs from an entirely deterministic pipeline
+failed on a field that had nothing to do with the reconciliation.
+
+Worth noting because it is the kind of thing that quietly invalidates a
+regression test. A CI job comparing output hashes would have failed
+intermittently, and the obvious response — loosening the comparison — would
+have destroyed the check's value.
+
+**Fix:** timing moved to an underscore-prefixed key that is stripped before
+serialisation. It still prints to the console where it is useful, and no longer
+contaminates an artefact that must be reproducible. Two runs at the same seed
+now produce byte-identical `run.json` and `summary.md`.
+
+---
+
+## 11. Ablation was comparing a 100-seed baseline to a 20-seed ablation
+
+The first ablation implementation ran the baseline sweep at 100 seeds and each
+tier ablation at 20. The deltas were therefore differences between two
+different populations, not measurements of a tier's contribution — a tier could
+appear to add or remove match rate purely through sampling variance between the
+two sweep sizes.
+
+**Fix:** `ablation_stub` takes the seed count from the caller and the CLI passes
+the same value used for the baseline. The deltas now mean what they claim to.

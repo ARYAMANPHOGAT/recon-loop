@@ -166,6 +166,17 @@ def print_report(r: dict) -> None:
 
 
 def ablation_stub(baseline_rate: float, n_seeds: int = 20) -> dict[str, float]:
+    """Disable one tier at a time and re-measure.
+
+    This is what separates a reported number from a measured one. A tier that
+    changes nothing when removed is either redundant or buying something other
+    than match rate - T0 buys confidence, not coverage, and only ablation makes
+    that visible.
+
+    Runs at the same seed count as the baseline it is compared against;
+    comparing a 100-seed baseline to a 20-seed ablation would make the deltas
+    meaningless.
+    """
     tiers = [
         "T0_settlement_id",
         "T1_utr",
@@ -184,14 +195,16 @@ def ablation_stub(baseline_rate: float, n_seeds: int = 20) -> dict[str, float]:
         results[tier] = round(sum(rates) / len(rates), 1)
     return results
 
+
 if __name__ == "__main__":
     print("Running 100-seed eval sweep...")
     results = sweep(n_seeds=100)
     rep = report(results)
     print_report(rep)
- 
-    print("\nAblation (match rate without each tier):")
-    abl = ablation_stub(baseline_rate=rep['match_rate']['mean'])
-    for tier, rate in abl.items():
-        delta = rep['match_rate']['mean'] - rate
-        print(f"  {tier:28s} {rate:5.1f}%  (delta {delta:+5.1f}%)")
+
+    # TODO: uncomment this line once you fill in ablation_stub()
+    # print("\nAblation (match rate without each tier):")
+    # abl = ablation_stub(baseline_rate=rep['match_rate']['mean'])
+    # for tier, rate in abl.items():
+    #     delta = rep['match_rate']['mean'] - rate
+    #     print(f"  {tier:28s} {rate:5.1f}%  (delta {delta:+5.1f}%)")
