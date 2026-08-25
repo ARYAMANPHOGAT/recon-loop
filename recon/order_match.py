@@ -110,27 +110,93 @@ def normalise_reference(raw: str, sort_tokens: bool = True) -> str:
     return " ".join(sorted(tokens) if sort_tokens else tokens)
 
 
+def _tokens(raw: str) -> list[str]:
+    if not raw:
+        return []
+    s = _PUNCT.sub(" ", raw.upper())
+    return [t for t in _SPACES.split(s) if t and t not in _HONORIFICS]
+
+
 def name_similarity(a: str, b: str) -> int:
     """Score two payer references 0-100.
 
-    Two comparisons, each fed the form it actually needs:
+    Three comparisons, each used only where it is valid.
 
-      token_sort_ratio  gets the SORTED form, so "Patel Rohan" and "Rohan
-                        Patel" compare equal.
-      partial_ratio     gets the UNSORTED, despaced form, so "DIVYAPATEL"
-                        matches "Divya Patel". Feeding it the sorted form
-                        scrambles letter order and scores the wrong candidate
-                        higher - see build log item 8.
+    An **initial** ("M. Rao") is handled structurally, never by substring. A
+    stripped initial produces a four-character needle, and `MRAO` is contained
+    in `VIKRAMRAO` — so `M. Rao` scored 100 against Vikram Rao and 85 against
+    the true Manish Rao. An initial carries one letter of evidence and must be
+    compared as one letter, against the initial of the other name.
+
+    Otherwise: token_sort_ratio on the sorted form, so reordered names compare
+    equal; partial_ratio on the unsorted despaced form, so lost whitespace
+    still matches. Feeding the sorted form to the substring comparison
+    scrambles letter order — see build log item 8.
     """
-    sa, sb = normalise_reference(a), normalise_reference(b)
-    if not sa or not sb:
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
         return 0
-    ua = normalise_reference(a, sort_tokens=False).replace(" ", "")
-    ub = normalise_reference(b, sort_tokens=False).replace(" ", "")
+
+    has_initial = any(len(t) == 1 for t in ta + tb)
+    if has_initial:
+        return _initial_similarity(ta, tb)
+
+    # A single token is either a full name with the space lost ("DIVYAPATEL")
+    # or a surname with no given name at all ("Sharma"). They carry completely
+    # different weight and must be told apart.
+    #
+    # The test: does the lone token account for the WHOLE of the other side, or
+    # only for one part of it? `DIVYAPATEL` matches `Divya`+`Patel` joined, so
+    # it is the full name. `Sharma` matches only the surname of `Rahul Sharma`,
+    # so a given name is missing and the evidence is thin - capped below the
+    # threshold, because substring comparison would otherwise return 100 and
+    # claim any Sharma with full confidence.
+    if len(ta) == 1 or len(tb) == 1:
+        lone, other = (ta[0], tb) if len(ta) == 1 else (tb[0], ta)
+        joined = "".join(other)
+        if int(fuzz.ratio(lone, joined)) >= 88:
+            return int(fuzz.ratio(lone, joined))
+        surname_score = int(fuzz.ratio(lone, other[-1]))
+        if surname_score < 85:
+            return min(surname_score, 60)
+        return min(75, surname_score)
+
+    sa, sb = " ".join(sorted(ta)), " ".join(sorted(tb))
+    ua, ub = "".join(ta), "".join(tb)
     return max(
         int(fuzz.token_sort_ratio(sa, sb)),
         int(fuzz.partial_ratio(ua, ub)),
     )
+
+
+def _initial_similarity(ta: list[str], tb: list[str]) -> int:
+    """Compare an abbreviated name against a full one.
+
+    The surname must genuinely match; the initial must agree with the first
+    letter of the corresponding given name. An initial that disagrees is
+    positive evidence of a different person, not weak evidence of the same one.
+    """
+    surname_a, surname_b = ta[-1], tb[-1]
+    surname_score = int(fuzz.ratio(surname_a, surname_b))
+    if surname_score < 85:
+        return min(surname_score, 60)
+
+    given_a = [t for t in ta[:-1]]
+    given_b = [t for t in tb[:-1]]
+    if not given_a or not given_b:
+        # Only a surname on one side. Real, but thin - never enough on its own.
+        return min(surname_score, 70)
+
+    if given_a[0][0] != given_b[0][0]:
+        return 40  # different person
+
+    # Initial agrees. If both are spelled out, score them properly.
+    if len(given_a[0]) > 1 and len(given_b[0]) > 1:
+        return int((surname_score + fuzz.ratio(given_a[0], given_b[0])) / 2)
+
+    # One is an initial: matching surname plus matching initial is good
+    # evidence, but never as strong as two spelled-out names agreeing.
+    return min(92, surname_score)
 
 
 # ---------------------------------------------------------------------------

@@ -380,3 +380,58 @@ def test_item11_disabling_a_tier_changes_the_result():
     full = len(match(led).matches)
     without_t2 = len(match(led, disabled_tiers={"T2_amount_date"}).matches)
     assert without_t2 < full, "disabling T2 had no effect - ablation is inert"
+
+
+# --- item 21: an initial matched by substring hit the wrong person ---------
+
+
+def test_item21_initial_compared_structurally_not_by_substring():
+    """`M. Rao` must not match `Vikram Rao`.
+
+    Stripping spaces turns an initial into a four-character needle, and
+    `MRAO` is contained in `VIKRAMRAO`. The substring comparison returned 100
+    for a coincidence and 85 for the true match.
+    """
+    assert name_similarity("M. Rao", "Manish Rao") > name_similarity("M. Rao", "Vikram Rao")
+    assert name_similarity("M. Rao", "Vikram Rao") < 60
+    assert name_similarity("M. Rao", "Manish Rao") >= 85
+
+
+@pytest.mark.parametrize(
+    "abbrev,wrong",
+    [
+        ("A. Sharma", "Rahul Sharma"),
+        ("S. Patel", "Karan Patel"),
+        ("P. Iyer", "Vikram Iyer"),
+        ("D. Singh", "Manish Singh"),
+    ],
+)
+def test_item21_disagreeing_initial_scores_low(abbrev, wrong):
+    """A disagreeing initial is evidence of a different person, not weak
+    evidence of the same one."""
+    assert name_similarity(abbrev, wrong) < 60
+
+
+def test_item21_surname_alone_is_capped():
+    """A surname with no given name on one side is real but thin evidence.
+
+    It is capped below the match threshold, so it can never claim a match on
+    its own - but it stays above zero, because it is genuinely weak evidence
+    rather than a contradiction.
+    """
+    from recon.order_match import NAME_MATCH_THRESHOLD
+
+    score = name_similarity("Sharma", "Rahul Sharma")
+    assert score < NAME_MATCH_THRESHOLD, "surname alone would claim a match"
+    assert score > 50, "surname alone should not read as a contradiction"
+
+
+def test_item21_no_false_positives_at_200_seeds():
+    """The 100-seed sweep reported zero. The 200-seed sweep found one."""
+    total = 0
+    for seed in range(1, 201):
+        led = generate(seed=seed)
+        for m in match_orders(led).matches:
+            if led.truth_entity_to_order.get(m.entity_id) != m.order_id:
+                total += 1
+    assert total == 0, f"{total} order-leg false positives across 200 seeds"

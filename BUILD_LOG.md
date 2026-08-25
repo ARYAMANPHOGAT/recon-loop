@@ -465,3 +465,66 @@ Both sides now tie to the paise on **60 of 60 seeds**.
 The general point is worth keeping. Summing categories to reconstruct a total is
 a step removed from the underlying facts, and it silently drifts from them.
 Working from the facts is longer and does not drift.
+
+---
+
+## 21. "Zero false positives" was true at 100 seeds and false at 200
+
+Writing the README meant re-measuring every quoted figure rather than repeating
+remembered ones. Running 200 seeds instead of 100 surfaced an order-leg false
+positive that every previous sweep had missed.
+
+```
+psp payer : 'M. Rao'      Rs.7,999.00
+matched   : 'Vikram Rao'  score 100
+truth     : 'Manish Rao'  score  85
+```
+
+The scorer preferred the wrong person, at maximum confidence.
+
+Cause: the similarity function strips whitespace before substring comparison,
+so `M. Rao` becomes the four-character needle `MRAO` — and `VIKRAMRAO` contains
+it, as `VIKRA·MRAO`. A coincidental substring hit scoring 100.
+
+An initial carries one letter of evidence and must be compared as one letter.
+
+**Fix:** names containing an initial are now compared structurally — the surname
+must genuinely match, and the initial must agree with the first letter of the
+corresponding given name. A disagreeing initial returns 40, because a
+disagreeing initial is evidence of a *different person*, not weak evidence of
+the same one. `M. Rao` now scores 92 against Manish Rao and 40 against Vikram
+Rao.
+
+This is the second time the same underlying mistake has appeared — build log
+item 8 was also a substring comparison being fed input it could not safely
+handle. The class of bug is: *insufficient evidence scoring as certainty*.
+
+---
+
+## 22. Writing the test for item 21 found a third instance of the same class
+
+Asserting that a bare surname cannot claim a match failed immediately:
+`Sharma` against `Rahul Sharma` scored **100**, because `SHARMA` is contained in
+`RAHULSHARMA`. Any customer sharing a surname would have matched at full
+confidence.
+
+It does not fire on the current generator, which always produces a given name,
+so no sweep would ever have caught it. It is a live weakness regardless.
+
+The first fix capped every single-token name — and broke `DIVYAPATEL` against
+`Divya Patel`, which is also a single token but is a full name with the space
+lost, not a surname standing alone. Two different situations that look identical
+to a token count.
+
+**Fix:** the discriminator is whether the lone token accounts for the *whole* of
+the other side or only *part* of it. `DIVYAPATEL` matches `Divya`+`Patel`
+joined, so it is the full name and scores fully. `Sharma` matches only the
+surname, so a given name is missing and the score is capped below the match
+threshold — able to support a match, never to make one.
+
+A side effect worth recording: `PRIYAMEHTA` against the decoy `Divya Mehta`
+dropped from 88 to 60, widening the margin over the true match from 12 points to
+40. Tightening the evidence rules made an unrelated near-miss substantially
+safer.
+
+Final position: **0 false positives across 300 seeds**, both legs.
