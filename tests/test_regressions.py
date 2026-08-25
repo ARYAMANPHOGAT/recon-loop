@@ -346,6 +346,9 @@ def test_item10_run_output_is_byte_identical(tmp_path):
     assert (a / "run.json").read_bytes() == (b / "run.json").read_bytes()
     assert (a / "summary.md").read_bytes() == (b / "summary.md").read_bytes()
     assert (a / "exceptions.csv").read_bytes() == (b / "exceptions.csv").read_bytes()
+    # The dashboard inlines the run payload, so any non-determinism upstream
+    # shows up here too.
+    assert (a / "dashboard.html").read_bytes() == (b / "dashboard.html").read_bytes()
 
 
 def test_item10_no_timing_key_in_artefact(tmp_path):

@@ -335,3 +335,48 @@ The underlying lesson is the one worth keeping: the first fix addressed the
 instance rather than the class. `run.json` was the file that had failed, so
 `run.json` was the file that got fixed, and the same defect sat untouched in the
 artefact next to it.
+
+---
+
+## 15. The dashboard's tier chart drew two different scales as one chart
+
+The method view plots matches claimed per tier. The bank leg and the order leg
+were rendered as one continuous list, each scaled to its own maximum:
+
+```
+T0_settlement_id   ████████████████░░░░   17
+O0_order_id        ███████████████████░  119
+```
+
+Seventeen and a hundred and nineteen drew at nearly the same length. Anyone
+reading bar lengths — which is the only reason to draw bars rather than print a
+table — would compare them directly and conclude the two tiers do comparable
+work.
+
+A shared scale was not the fix either: the order leg is an order of magnitude
+larger, so a shared maximum flattens every bank tier to a stub and the view
+stops saying anything about the leg that matters most.
+
+**Fix:** two charts, each with its own header stating its total and the maximum
+its bars are scaled to. The scale is now visible rather than implied.
+
+Worth recording because it was not a coding error — the code did exactly what
+it was told. It was a presentation choice that made a correct number read
+incorrectly, which is the failure mode a dashboard is uniquely good at
+producing.
+
+---
+
+## 16. The reconciliation channel labelled distinct findings with one word
+
+Rows with nothing opposite them showed `carry` in the channel regardless of
+cause. A payout carried forward because refunds exceeded collections, a credit
+belonging to the previous statement, and another PSP's settlement all read the
+same.
+
+Those are three different findings with three different actions, and the view
+was flattening them into one. The channel now carries the classification —
+`carry fwd`, `prior period`, `other psp`, `in transit` — taken from the
+exception the classifier already produced.
+
+The information existed the whole time. The interface simply was not showing it.

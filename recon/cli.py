@@ -26,9 +26,10 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+from .dashboard import write_dashboard
 from .exceptions import classify, summarise
 from .generate import generate
-from .match import match
+from .match import build_payouts, match
 from .models import rupees
 from .order_match import match_orders
 
@@ -110,6 +111,33 @@ def _run_once(seed: int) -> dict:
             "bank": [asdict(m) for m in bank.matches],
             "order": [asdict(m) for m in orders.matches],
         },
+        # Row-level detail for the dashboard. The reconciliation view needs
+        # both sides of the ledger, not just the matches between them - an
+        # unmatched row is as much a result as a matched one.
+        "payouts": [
+            {
+                "settlement_id": p.settlement_id,
+                "settled_on": str(p.settled_on),
+                "net": p.net,
+                "net_display": rupees(p.net),
+                "payments": p.n_payments,
+                "refunds": p.n_refunds,
+                "chargebacks": p.n_chargebacks,
+            }
+            for p in sorted(build_payouts(led), key=lambda x: (x.settled_on, x.settlement_id))
+        ],
+        "bank_rows": [
+            {
+                "stmt_id": b.stmt_id,
+                "value_date": str(b.value_date),
+                "credit": b.credit,
+                "credit_display": rupees(b.credit),
+                "narration": b.narration,
+                "utr": b.utr,
+            }
+            for b in led.bank
+            if b.credit > 0
+        ],
     }
 
 
@@ -223,6 +251,7 @@ def cmd_run(args) -> int:
     (out / "run.json").write_text(json.dumps(artefact, indent=2), encoding="utf-8")
     _write_markdown(result, out / "summary.md")
     _write_csv(result, out / "exceptions.csv")
+    write_dashboard(artefact, out / "dashboard.html")
 
     o, b, e = result["order_leg"], result["bank_leg"], result["exceptions"]
     print(f"\nRECON RUN — seed {result['seed']} — {result['_runtime_ms']}ms")
@@ -243,6 +272,7 @@ def cmd_run(args) -> int:
     print(f"  wrote {out / 'run.json'}")
     print(f"  wrote {out / 'summary.md'}")
     print(f"  wrote {out / 'exceptions.csv'}")
+    print(f"  wrote {out / 'dashboard.html'}   <- open this")
     print()
     return 0
 
