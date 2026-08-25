@@ -128,7 +128,17 @@ body{
   padding:9px 12px;min-height:52px;display:flex;flex-direction:column;
   justify-content:center;
 }
-.cell.empty{background:transparent;border:1px dashed var(--rule-2);opacity:.5}
+.cell.empty{
+  background:repeating-linear-gradient(135deg,transparent,transparent 5px,
+    var(--rule-2) 5px,var(--rule-2) 6px);
+  border:1px dashed var(--rule);
+  align-items:center;justify-content:center;
+}
+.cell.empty span{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);
+  background:var(--paper);padding:2px 7px;
+}
 .cell .id{font-family:var(--mono);font-size:12px;font-weight:500}
 .cell .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px}
 .cell .amt{font-family:var(--mono);font-size:14px;font-weight:500;margin-top:2px}
@@ -141,8 +151,15 @@ body{
   width:1px;background:var(--rule);
 }
 .link{
-  position:relative;width:100%;height:1px;background:var(--tied);
+  position:relative;width:100%;background:var(--tied);
 }
+/* Link thickness encodes confidence. A settlement id read out of a narration
+   is proof and draws solid; an amount landing in a date window is inference
+   and draws thin. The distinction the Method tab argues in prose is visible
+   here without reading anything. */
+.link.c-proof{height:2.5px}
+.link.c-strong{height:1.5px}
+.link.c-inferred{height:1px;opacity:.75}
 .link::before,.link::after{
   content:"";position:absolute;top:-2.5px;width:6px;height:6px;
   border-radius:50%;background:var(--tied);
@@ -313,6 +330,7 @@ p.lede{font-size:13px;color:var(--ink-2);margin:5px 0 0;max-width:70ch}
       <span><i style="background:var(--tied)"></i>tied</span>
       <span><i style="background:var(--attend)"></i>tied, with an explained difference</span>
       <span><i style="background:var(--broken)"></i>stranded — nothing opposite</span>
+      <span style="margin-left:auto">line weight = confidence: <i style="background:var(--tied);height:2.5px"></i>proof <i style="background:var(--tied);height:1.5px"></i>strong <i style="background:var(--tied);height:1px;opacity:.75"></i>inferred</span>
     </div>
   </section>
 
@@ -374,9 +392,23 @@ figs.forEach(f=>{
 
 /* ---------- tabs ---------- */
 const tabs=[...document.querySelectorAll('.tab')];
-tabs.forEach(t=>t.addEventListener('click',()=>{
+function selectTab(t){
   tabs.forEach(o=>{o.setAttribute('aria-selected', String(o===t)); $('#p-'+o.dataset.p).hidden = o!==t;});
-}));
+  t.focus();
+}
+tabs.forEach((t,i)=>{
+  t.addEventListener('click',()=>selectTab(t));
+  // Arrow keys move between tabs, which is what a tablist is expected to do
+  // and what anyone navigating without a mouse will try first.
+  t.addEventListener('keydown',ev=>{
+    const k=ev.key;
+    if(k!=='ArrowRight'&&k!=='ArrowLeft'&&k!=='Home'&&k!=='End') return;
+    ev.preventDefault();
+    const n = k==='Home' ? 0 : k==='End' ? tabs.length-1
+            : (i + (k==='ArrowRight'?1:-1) + tabs.length) % tabs.length;
+    selectTab(tabs[n]);
+  });
+});
 
 /* ---------- build the gutter ---------- */
 const payoutById = Object.fromEntries(DATA.payouts.map(p=>[p.settlement_id,p]));
@@ -420,11 +452,17 @@ function drawGutter(){
       c.append(el('div','amt',money(r.payout.net)));
       c.append(el('div','sub',`${r.payout.settled_on} · ${r.payout.payments}p ${r.payout.refunds}r`));
       wrap.append(c);
-    } else wrap.append(el('div','cell empty'));
+    } else {
+      const e=el('div','cell empty'); e.append(el('span',null,'no payout'));
+      wrap.append(e);
+    }
     // channel
     const ch=el('div','chan');
     if(r.kind!=='break' && r.payout && r.bank.length){
-      const ln=el('div','link'+(r.match && r.match.delta ? ' charged':''));
+      const cf=r.match?.confidence ?? 0;
+      const weight = cf>=0.99 ? 'c-proof' : cf>=0.90 ? 'c-strong' : 'c-inferred';
+      const ln=el('div','link '+weight+(r.match && r.match.delta ? ' charged':''));
+      ln.title=`${r.match?.tier} · confidence ${cf.toFixed(2)}`;
       ch.append(ln);
       ch.append(el('span','tierpip', (r.match?.tier||'').split('_')[0]));
     } else if(r.kind==='break'){
@@ -446,7 +484,10 @@ function drawGutter(){
       c.append(el('div','amt', money(r.bank.reduce((s,b)=>s+b.credit,0))));
       c.append(el('div','sub', r.bank[0].value_date+' · '+r.bank[0].narration.slice(0,34)));
       wrap.append(c);
-    } else wrap.append(el('div','cell empty'));
+    } else {
+      const e=el('div','cell empty'); e.append(el('span',null,'no credit'));
+      wrap.append(e);
+    }
     g.append(wrap);
   });
   if(!shown.length) g.append(el('div','note','Nothing in this view.'));

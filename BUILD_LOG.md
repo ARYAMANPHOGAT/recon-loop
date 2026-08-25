@@ -380,3 +380,40 @@ was flattening them into one. The channel now carries the classification —
 exception the classifier already produced.
 
 The information existed the whole time. The interface simply was not showing it.
+
+---
+
+## 17. The dashboard argued its best point in prose and hid it in the view
+
+The Method tab explains at length that `T0` buys certainty rather than
+coverage: removing it leaves the match rate unchanged but drops mean confidence
+from 0.96 to 0.90. A settlement id printed in a narration is proof; an amount
+landing inside a date window is inference.
+
+The reconciliation view drew both as an identical line. The single most
+interesting finding in the project was stated in a paragraph on a different tab
+and contradicted by the main view, which showed every tie as equally certain.
+
+**Fix:** link weight now encodes confidence — solid for proof, medium for
+strong, thin for inference — with the reading given in the legend. Hovering a
+link names the tier and the score.
+
+The point is now visible before it is read, which is the only reason to draw a
+picture rather than write a sentence.
+
+---
+
+## 18. Empty cells read as a rendering gap rather than as absence
+
+A payout with no bank credit rendered as a faint dashed outline at 50% opacity.
+On screen it read as blank space — as though the interface had failed to draw
+something, rather than reporting that there is nothing there.
+
+That inverts the meaning. In reconciliation an empty cell is not missing data;
+it *is* the finding.
+
+**Fix:** stranded cells now carry a hatched fill and an explicit label — `no
+payout` or `no credit`. The absence is stated rather than implied.
+
+Also added arrow-key navigation to the tab strip, which a tablist is expected
+to support and which anyone working without a mouse will reach for first.
