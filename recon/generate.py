@@ -225,8 +225,14 @@ def generate(
             log("order_id_absent", entity_id=pay_id, channel=o.channel)
 
     # --- BREAK A: refunds issued after capture, netted into a later payout
-    n_refunds = max(3, int(len(lines) * 0.045))
-    for r in rng.sample(lines, n_refunds):
+    # Sample sizes are clamped to what actually exists. A tiny ledger - one or
+    # two orders - is a legitimate input, and asking for three refunds out of
+    # one payment raises rather than degrading.
+    # The floor of three only applies once there is enough volume for three
+    # refunds to be proportionate. On a tiny ledger it would mean a 100% refund
+    # rate, which is not a small dataset - it is a different dataset.
+    n_refunds = min(len(lines), max(3, int(len(lines) * 0.045)) if len(lines) >= 20 else int(len(lines) * 0.045))
+    for r in rng.sample(lines, n_refunds) if n_refunds else []:
         # partial refunds are the nastier case - include both
         full = rng.random() < 0.55
         amt = r.gross if full else round(r.gross * rng.uniform(0.2, 0.7))
@@ -250,8 +256,12 @@ def generate(
         log("refund_netted", entity_id=rid, order_id=r.order_id, full=full)
 
     # --- BREAK B: chargebacks - debited from a payout with no merchant record
-    n_cb = max(2, int(len(paid_orders) * 0.012))
-    for c in rng.sample(lines[: len(paid_orders)], n_cb):
+    payment_lines = lines[: len(paid_orders)]
+    n_cb = min(
+        len(payment_lines),
+        max(2, int(len(paid_orders) * 0.012)) if len(paid_orders) >= 40 else int(len(paid_orders) * 0.012),
+    )
+    for c in rng.sample(payment_lines, n_cb) if n_cb else []:
         cid = f"cb_{rng.randint(10000, 99999)}"
         lines.append(
             SettlementLine(
@@ -468,7 +478,7 @@ def _inject_hard_breaks(led: Ledger, rng, start: date, days: int, log) -> None:
     # --- BREAK I: bank levies NEFT/RTGS charges on the credit -------------
     # Credit lands short by a fixed charge. Amount tier will miss it; the
     # engine must either explain the delta or list it as an exception.
-    for b in rng.sample(credits, 2):
+    for b in rng.sample(credits, min(2, len(credits))):
         charge = rng.choice([1_770, 2_950, 5_900])  # Rs.15/25/50 + 18% GST
         b.credit -= charge
         log("bank_charge_deducted", stmt_id=b.stmt_id, charge=charge)

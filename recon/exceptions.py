@@ -336,6 +336,10 @@ def classify(led: Ledger, res: MatchResult) -> list[Exception_]:
     # Explicit period, never inferred from max(value_date) - a single stray
     # row would otherwise move the boundary and change how in-transit items
     # are classified.
+    # An empty statement is a valid input - a merchant with no bank activity in
+    # the period. It must produce an empty ledger, not a crash.
+    if not led.bank and led.period_end is None:
+        return []
     period_end = led.period_end or max(b.value_date for b in led.bank)
     known_ids = {l.settlement_id.lower() for l in led.settlements if l.settlement_id}
 

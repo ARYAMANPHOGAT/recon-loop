@@ -528,3 +528,68 @@ dropped from 88 to 60, widening the margin over the true match from 12 points to
 safer.
 
 Final position: **0 false positives across 300 seeds**, both legs.
+
+---
+
+## 23. The order leg was quadratic, and the cause was also a correctness gap
+
+Scale testing at 8,000 orders took 2.1 seconds and was climbing about 5x per
+doubling. At 50,000 orders it would have run for minutes.
+
+The `O2` name tier looped every unmatched payment against every open order,
+running a fuzzy comparison on each pair — roughly 48 million comparisons at
+that volume.
+
+The interesting part is that the same line was also a correctness gap. `O2`
+scored names against every order in the time window **regardless of amount**.
+A payment's gross *is* the order amount, so a strong name match on an order for
+a different sum could have claimed the wrong transaction. `O2` exists to
+disambiguate between orders that share an amount and a window, not to override
+the amount.
+
+**Fix:** candidates are indexed by `(amount, date)`. Amount alone still grows
+with volume, because merchants sell at price points and a price-point bucket
+fills up; the 24-hour capture window bounds it by date instead.
+
+8,000 orders went from 2,085ms to 113ms. 32,000 orders now runs in 1.8s.
+
+---
+
+## 24. Three crashes on inputs that are perfectly legitimate
+
+An empty ledger, a one-order ledger and a two-order ledger all raised.
+
+- `classify()` called `max()` over an empty bank statement. A merchant with no
+  bank activity in the period is a valid input, not an error.
+- The generator called `rng.sample(lines, 3)` for refunds when there was one
+  line to draw from.
+
+Both fixed by clamping to what exists. But clamping alone produced a second
+problem: a one-order ledger then generated one refund and one chargeback,
+because `max(3, ...)` forces a floor even after clamping. A merchant with one
+order and a 100% refund rate is not a small dataset — it is a different dataset.
+
+**Fix:** the floors only apply once there is enough volume for them to be
+proportionate. Below that, breaks scale purely by rate.
+
+The reconciliation statement now ties at every size from 1 order to 32,000.
+
+---
+
+## 25. A test asserted a story instead of a measurement
+
+Writing the scale tests, the claim was that the engine "degrades safely" — as
+volume rises, more orders share a price point on the same day, so the margin
+rule refuses more matches and the rate falls while false positives stay at zero.
+
+The test asserted the rate falls monotonically. It failed: 500 orders scores
+99.3% and 2,000 scores 99.8%. At low volume the sample is small enough to be
+noisy, and decline only appears above 8,000.
+
+The narrative was mostly right and the assertion was wrong, which is the more
+dangerous combination — a test that passes for a while and then fails on data
+that is behaving correctly.
+
+**Fix:** the test now asserts what is actually invariant across an order of
+magnitude — the rate stays above 95% and the false-positive count stays at zero
+— rather than the shape of a curve that was never guaranteed.
