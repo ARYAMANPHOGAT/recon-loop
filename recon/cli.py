@@ -103,6 +103,11 @@ def _run_once(seed: int) -> dict:
             "unmatched_bank_rows": len(bank.unmatched_bank),
         },
         "exceptions": ex_summary,
+        # The classic bank reconciliation statement: start from what the bank
+        # shows, adjust for items the bank has not yet seen or has charged, and
+        # arrive at what the books say. The two sides tie or the difference is
+        # named. This is the form a controller already reads.
+        "statement": _reconciliation_statement(led, bank, orders, exceptions),
         "value_reconciled_paise": value_reconciled,
         "value_reconciled_display": rupees(value_reconciled),
         "llm_calls": 0,
@@ -138,6 +143,76 @@ def _run_once(seed: int) -> dict:
             for b in led.bank
             if b.credit > 0
         ],
+    }
+
+
+
+def _reconciliation_statement(led, bank, orders, exceptions) -> dict:
+    """Assemble the two-sided reconciliation statement.
+
+    Computed from the actual figures rather than by summing exception classes.
+    Deriving it from classes was the first attempt and it was wrong: batches
+    that never entered a total were subtracted from it anyway, and the
+    statement reported a difference the engine had not made.
+
+    Bank side  : credits on the statement, less credits that belong elsewhere.
+    Books side : payouts the report claims, less those the bank has not yet
+                 credited and less charges taken on the way.
+
+    Both sides should arrive at the same figure - the money that actually moved
+    for this period. Residue is stated rather than absorbed.
+    """
+    from .exceptions import ExClass
+
+    payouts = build_payouts(led)
+    matched_payout_ids = {m.payout_id for m in bank.matches}
+    matched_stmt_ids = {s for m in bank.matches for s in m.bank_stmt_ids}
+
+    credits_total = sum(b.credit for b in led.bank if b.credit > 0)
+    credits_matched = sum(
+        b.credit for b in led.bank if b.credit > 0 and b.stmt_id in matched_stmt_ids
+    )
+    credits_other = credits_total - credits_matched
+
+    # Only positive batches are ever expected to produce a credit. A
+    # net-negative batch is carried against the next payout, so it is disclosed
+    # as a memo line rather than subtracted from a total it was never in.
+    positive = [p for p in payouts if p.net > 0]
+    payouts_total = sum(p.net for p in positive)
+    payouts_matched = sum(p.net for p in positive if p.settlement_id in matched_payout_ids)
+    payouts_open = payouts_total - payouts_matched
+
+    charges = sum(m.delta for m in bank.matches)
+    carried = sum(-p.net for p in payouts if p.net <= 0)
+
+    bank_adjusted = credits_total - credits_other
+    books_adjusted = payouts_total - payouts_open - charges
+
+    return {
+        "bank": [
+            {"label": "Credits on the bank statement", "amount": credits_total},
+            {"label": "Less: credits not this reconciliation", "amount": -credits_other,
+             "note": "prior period, another PSP, non-settlement activity"},
+        ],
+        "bank_total": bank_adjusted,
+        "books": [
+            {"label": "Payouts per settlement report", "amount": payouts_total},
+            {"label": "Less: not yet credited by the bank", "amount": -payouts_open,
+             "note": "in transit at close, and any payout still unexplained"},
+            {"label": "Less: bank charges taken on transfer", "amount": -charges,
+             "note": "NEFT and RTGS fees plus GST, matched and explained"},
+        ],
+        "books_total": books_adjusted,
+        "memo": [
+            {"label": "Carried forward against next payout", "amount": carried,
+             "note": "net-negative batches; no bank credit expected"},
+        ],
+        "difference": bank_adjusted - books_adjusted,
+        "unexplained_count": sum(
+            1 for e in exceptions
+            if e.ex_class in (ExClass.UNEXPLAINED, ExClass.OPAQUE_NARRATION)
+        ),
+        "ties": bank_adjusted == books_adjusted,
     }
 
 

@@ -417,3 +417,51 @@ payout` or `no credit`. The absence is stated rather than implied.
 
 Also added arrow-key navigation to the tab strip, which a tablist is expected
 to support and which anyone working without a mouse will reach for first.
+
+---
+
+## 19. The dashboard opened with a KPI strip, which is nobody's document
+
+The first dashboard led with five cards: big number, small label, one per metric.
+It is the default answer for any dashboard and it was reached for on autopilot.
+It also says nothing a reader could not get from one line of text, and it looks
+like every other dashboard because it is.
+
+Reconciliation already has a document. The bank reconciliation statement has
+been set the same way for a century: balance per bank, adjust for what the bank
+has not seen, balance per books, adjust for what the books have not seen, and
+the two sides tie or the difference is named. Anyone in finance reads it without
+instruction.
+
+**Fix:** the statement replaced the cards as the hero, with its conventions kept
+rather than restyled — negatives in parentheses, figures right-aligned in
+tabular numerals, a double rule under a total that is final. Match rates moved
+to a thin data line beneath it, which is their correct weight: they are evidence
+for the claim, not the claim.
+
+Set on green-bar ledger stock with the printed band alternating down the
+reconciliation view, because that banding exists to stop the eye losing its line
+across a wide table, which is exactly what the gutter is.
+
+---
+
+## 20. Building the statement exposed a real accounting error
+
+The first version summed exception classes to produce each line. It reported a
+difference of ₹2,172.00 on seed 42 and refused to tie.
+
+The engine was right. The statement was wrong: it subtracted net-negative
+batches as "carried forward" from a total those batches had never been part of,
+since only positive payouts are summed in the first place. A figure was being
+deducted twice, once by omission and once by subtraction.
+
+**Fix:** the statement is computed from the actual figures — credits on the
+statement, credits matched, payouts claimed, payouts matched, deltas explained —
+rather than by adding up classifications. Carried-forward became a memo line,
+which is what it is: disclosed, not deducted.
+
+Both sides now tie to the paise on **60 of 60 seeds**.
+
+The general point is worth keeping. Summing categories to reconstruct a total is
+a step removed from the underlying facts, and it silently drifts from them.
+Working from the facts is longer and does not drift.

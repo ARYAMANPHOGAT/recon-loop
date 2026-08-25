@@ -33,16 +33,17 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <title>Recon Loop — reconciliation console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <style>
 :root{
-  --paper:#EDEFF2;        /* cool statement stock */
-  --card:#F7F8FA;
-  --ink:#171B21;
-  --ink-2:#4A545F;
-  --ink-3:#7C8894;
-  --rule:#CDD4DC;
-  --rule-2:#DFE4EA;
+  --paper:#F3F5F0;        /* green-bar ledger stock */
+  --bar:#E6EBE0;          /* the printed band on accounting paper */
+  --card:#FAFBF8;
+  --ink:#14170F;
+  --ink-2:#4C5346;
+  --ink-3:#828A79;
+  --rule:#C6CEBC;
+  --rule-2:#DCE2D4;
   --tied:#1C6B57;         /* ledger green: reconciled */
   --tied-bg:#E4EFEB;
   --broken:#9E362B;       /* oxidised red: does not tie */
@@ -50,8 +51,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
   --attend:#8A6410;       /* goldenrod: needs a person */
   --attend-bg:#F5EDDA;
   --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
-  --sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
-  --serif:'IBM Plex Serif',Georgia,serif;
+  --sans:'Newsreader',Georgia,serif;
+  --serif:'Newsreader',Georgia,serif;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -68,28 +69,56 @@ body{
   gap:24px;flex-wrap:wrap;
   padding:26px 0 14px;border-bottom:2px solid var(--ink);
 }
-.brand{font-family:var(--serif);font-size:25px;font-weight:600;letter-spacing:-.015em}
+.brand{font-family:var(--serif);font-size:27px;font-weight:600;letter-spacing:-.012em}
 .brand span{color:var(--ink-3);font-weight:400}
 .runmeta{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);text-align:right}
 .runmeta b{color:var(--ink);font-weight:500}
 
 /* ---------- headline figures ---------- */
-.figures{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
-  border-bottom:1px solid var(--rule);
+/* The reconciliation statement. Two sides that must arrive at the same
+   figure, set the way the document has been set for a century: labels left,
+   figures right, negatives in parentheses, a double rule under a total that
+   ties. This is the form, not a decoration of it. */
+.stmt{display:grid;grid-template-columns:1fr 1fr;gap:0 44px;padding:22px 0 6px}
+.stmt section{min-width:0}
+.stmt h3{
+  font-family:var(--mono);font-size:10px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 9px;font-weight:400;
 }
-.fig{padding:16px 20px 15px;border-right:1px solid var(--rule-2)}
-.fig:last-child{border-right:0}
-.fig .k{
-  font-family:var(--mono);font-size:10px;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--ink-3);
+.line{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:baseline;padding:3px 0}
+.line .lb{font-size:15px;color:var(--ink-2);line-height:1.35}
+.line .lb i{
+  display:block;font-style:normal;font-family:var(--mono);
+  font-size:10px;color:var(--ink-3);margin-top:1px;
 }
-.fig .v{
-  font-family:var(--mono);font-size:29px;font-weight:500;
-  letter-spacing:-.02em;margin-top:5px;line-height:1;
+.line .fg{font-family:var(--mono);font-size:14px;white-space:nowrap}
+.line.neg .fg{color:var(--broken)}
+.line.tot{border-top:1px solid var(--ink);margin-top:7px;padding-top:7px}
+.line.tot .lb{color:var(--ink);font-weight:500}
+.line.tot .fg{font-weight:600;font-size:15.5px}
+/* the accountant's double rule: this figure is final */
+.line.tot::after{
+  content:"";grid-column:1/-1;height:0;border-bottom:3px double var(--ink);
+  margin-top:6px;
 }
-.fig .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:5px}
-.v.tied{color:var(--tied)} .v.broken{color:var(--broken)} .v.attend{color:var(--attend)}
+.verdict{
+  grid-column:1/-1;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  margin-top:16px;padding:11px 15px;border:1px solid var(--rule);
+  background:var(--card);
+}
+.verdict .mark{font-family:var(--mono);font-size:16px;line-height:1}
+.verdict.ok .mark{color:var(--tied)}
+.verdict.off .mark{color:var(--broken)}
+.verdict .txt{font-size:15px;color:var(--ink)}
+.verdict .aside{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:auto}
+.statline{
+  display:flex;gap:26px;flex-wrap:wrap;padding:13px 0 15px;
+  border-top:1px solid var(--rule);margin-top:18px;
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
+}
+.statline b{font-weight:500;color:var(--ink)}
+.statline .g{color:var(--tied)}
+@media (max-width:760px){.stmt{grid-template-columns:1fr;gap:26px}}
 
 /* ---------- tabs ---------- */
 .tabs{display:flex;gap:0;border-bottom:1px solid var(--rule);margin-top:2px;overflow-x:auto}
@@ -118,7 +147,11 @@ body{
   text-align:center;font-family:var(--mono);font-size:9.5px;
   color:var(--ink-3);letter-spacing:.06em;
 }
-.gutter{display:flex;flex-direction:column;gap:2px}
+.gutter{display:flex;flex-direction:column;gap:0}
+/* Green-bar paper alternates a printed band every other row so the eye tracks
+   across a wide table without losing the line. Same reason here. */
+.gr:nth-child(even) .cell{background:var(--bar)}
+.gr:nth-child(even) .chan{background:linear-gradient(var(--bar),var(--bar))}
 .gr{
   display:grid;grid-template-columns:1fr 92px 1fr;align-items:stretch;
   background:transparent;
@@ -307,7 +340,8 @@ p.lede{font-size:13px;color:var(--ink-2);margin:5px 0 0;max-width:70ch}
     <div class="runmeta" id="runmeta"></div>
   </header>
 
-  <section class="figures" id="figures" aria-label="Run result"></section>
+  <section class="stmt" id="stmt" aria-label="Reconciliation statement"></section>
+  <div class="statline" id="statline"></div>
 
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" aria-selected="true"  data-p="recon">Reconciliation</button>
@@ -374,21 +408,50 @@ $('#runmeta').innerHTML =
   `seed <b>${DATA.seed}</b> · ${DATA.period.start} to ${DATA.period.end}<br>` +
   `${DATA.volume.orders} orders · ${DATA.volume.settlement_lines} settlement lines · ${DATA.volume.bank_rows} bank rows`;
 
-const figs = [
-  {k:'Order → settlement', v:DATA.order_leg.match_rate+'%', n:`${DATA.order_leg.matched} of ${DATA.order_leg.total}`, c:''},
-  {k:'Payout → bank',      v:DATA.bank_leg.match_rate+'%',  n:`${DATA.bank_leg.matched} of ${DATA.bank_leg.total}`, c:''},
-  {k:'False positives',    v:String(DATA.order_leg.false_positives+DATA.bank_leg.false_positives), n:'checked against ground truth', c:'tied'},
-  {k:'Needs a person',     v:String(DATA.exceptions.requires_human), n:`of ${DATA.exceptions.total} exceptions`, c:'attend'},
-  {k:'Model calls',        v:String(DATA.llm_calls), n:'matching is deterministic', c:''},
-];
-const figWrap = $('#figures');
-figs.forEach(f=>{
-  const d = el('div','fig');
-  d.append(el('div','k',f.k));
-  d.append(el('div','v '+f.c, f.v));
-  d.append(el('div','n',f.n));
-  figWrap.append(d);
-});
+/* Accounting convention: a negative figure is set in parentheses, never with
+   a minus sign. Anyone who reads statements expects it and reads it faster. */
+const acct = p => p<0 ? '('+money(Math.abs(p)).replace('\u20B9','')+')' : money(p).replace('\u20B9','');
+
+const S = DATA.statement;
+function side(title, rows, totalLabel, total){
+  const sec=el('section');
+  sec.append(el('h3',null,title));
+  rows.forEach(r=>{
+    const ln=el('div','line'+(r.amount<0?' neg':''));
+    const lb=el('div','lb'); lb.append(document.createTextNode(r.label));
+    if(r.note) lb.append(el('i',null,r.note));
+    ln.append(lb);
+    ln.append(el('div','fg',acct(r.amount)));
+    sec.append(ln);
+  });
+  const t=el('div','line tot');
+  t.append(el('div','lb',totalLabel));
+  t.append(el('div','fg',acct(total)));
+  sec.append(t);
+  return sec;
+}
+const stmt=$('#stmt');
+stmt.append(side('Per the bank', S.bank, 'Adjusted bank balance', S.bank_total));
+stmt.append(side('Per the books', S.books, 'Adjusted book balance', S.books_total));
+
+const v=el('div','verdict '+(S.ties?'ok':'off'));
+v.append(el('span','mark', S.ties?'\u2713':'\u2717'));
+v.append(el('span','txt', S.ties
+  ? 'Both sides arrive at the same figure. The period reconciles.'
+  : `The two sides differ by ${money(Math.abs(S.difference))}.`));
+const memo=S.memo?.[0];
+if(memo && memo.amount)
+  v.append(el('span','aside', `memo: ${money(memo.amount)} carried forward`));
+stmt.append(v);
+
+$('#statline').innerHTML =
+  `order \u2192 settlement <b>${DATA.order_leg.match_rate}%</b> ` +
+  `<span style="color:var(--ink-3)">${DATA.order_leg.matched}/${DATA.order_leg.total}</span>` +
+  `<span>payout \u2192 bank <b>${DATA.bank_leg.match_rate}%</b> ` +
+  `<span style="color:var(--ink-3)">${DATA.bank_leg.matched}/${DATA.bank_leg.total}</span></span>` +
+  `<span>false positives <b class="g">${DATA.order_leg.false_positives+DATA.bank_leg.false_positives}</b></span>` +
+  `<span>needs a person <b>${DATA.exceptions.requires_human}</b> of ${DATA.exceptions.total}</span>` +
+  `<span>model calls <b>${DATA.llm_calls}</b></span>`;
 
 /* ---------- tabs ---------- */
 const tabs=[...document.querySelectorAll('.tab')];
