@@ -413,7 +413,9 @@ tabs.forEach((t,i)=>{
 const S=DATA.statement;
 function side(title,rows,totalLabel,total,tick){
   const sec=el('section'); sec.append(el('h3',null,title));
-  rows.forEach(r=>{
+  // A working paper does not print a line with no activity on it. A zero
+  // adjustment is not information; it is a row the reader has to rule out.
+  rows.filter(r=>r.amount!==0).forEach(r=>{
     const ln=el('div','line'+(r.amount<0?' neg':''));
     const lb=el('div','lb'); lb.append(document.createTextNode(r.label));
     if(r.note) lb.append(el('i',null,r.note));
