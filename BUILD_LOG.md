@@ -593,3 +593,44 @@ that is behaving correctly.
 **Fix:** the test now asserts what is actually invariant across an order of
 magnitude — the rate stays above 95% and the false-positive count stays at zero
 — rather than the shape of a curve that was never guaranteed.
+
+---
+
+## 26. The interface was still a dashboard wearing accounting clothes
+
+The previous version led with a reconciliation statement, kept the accounting
+conventions, and was set on ledger stock. It was a considerable improvement on
+the KPI cards it replaced (item 19) and it was still fundamentally a dashboard
+with financial styling applied.
+
+A reconciliation is not a dashboard. It is a **working paper** — the document an
+accountant prepares, signs, and hands to a reviewer. That form is settled, and
+its conventions carry information rather than decoration:
+
+- A **header block**: entity, period, population, basis, and a working-paper
+  reference. "Full population; no sampling" is a real statement of method, and
+  a pointed one — auditors sample because they must; this engine does not have
+  to.
+- **Lettered schedules** that cross-reference one another, rather than tabs.
+- **Tick marks** against agreed items, with a legend at the foot explaining each
+  symbol.
+- A **signature block**, because the document exists to be reviewed.
+
+The tick legend is the important one. A tick mark is how a preparer tells a
+reviewer *what was checked and on what basis* — `✓` agreed on settlement
+reference, `⊕` agreed less a computed bank charge, `~` agreed on inference, `◊`
+no counterpart, `∆` outside scope.
+
+That is precisely what the confidence tiers already encode. The engine had been
+computing the distinction from the first week and expressing it as a decimal in
+a column. Rendering it in the notation the domain already uses says the same
+thing to a finance reader without a legend for the legend.
+
+Also added a print stylesheet. A working paper gets printed and signed; every
+schedule prints, the navigation does not, and expanded evidence comes with it.
+The signature block reads "Reviewed by: not yet reviewed", which is the
+engine-proposes-human-disposes principle rendered as a blank line waiting for a
+name.
+
+Vocabulary changed throughout from "matched" to "agreed", which is the word the
+people who do this work actually use.
